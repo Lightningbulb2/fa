@@ -811,6 +811,10 @@ end
 --- Call this from the map script to set up mission-like envvironment.
 ---@see InitializeArmies for starting a classic skirmish game
 function InitializeScenarioArmies()
+    -- Keep lobby colors for players; must run before the color functions
+    -- below are cached into locals.
+    import("/lua/sim/campaignarmycolors.lua").Install()
+
     -- globals to locals
     local import = import
     local GetArmyBrain = GetArmyBrain

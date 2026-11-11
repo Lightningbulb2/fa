@@ -1366,7 +1366,42 @@ function ClearSlotInfo(slotIndex)
     refreshObserverList()
 end
 
+-- Palette indices that are too close to a color the selected mission gives one
+-- of its NPC armies (see `/lua/shared/npccolors.lua`). Treated like colors that
+-- are already taken, the same way the lobby limits factions per slot.
+local reservedColors = {}
+local reservedColorsScenario = false
+
+--- Recomputes `reservedColors` when the scenario changed. As host, moves any
+--- player off a color that just became reserved.
+---@param scenario? table
+local function RefreshReservedColors(scenario)
+    local scenarioFile = gameInfo.GameOptions.ScenarioFile
+    if scenarioFile == reservedColorsScenario then
+        return
+    end
+    reservedColorsScenario = scenarioFile
+    reservedColors = import("/lua/shared/npccolors.lua").GetReservedPaletteIndices(scenarioFile, scenario)
+
+    if not lobbyComm:IsHost() then
+        return
+    end
+    for slot = 1, LobbyComm.maxPlayerSlots do
+        local player = gameInfo.PlayerOptions[slot]
+        if player and reservedColors[player.PlayerColor] then
+            local newColor = GetAvailableColor()
+            if newColor then
+                SetPlayerColor(player, newColor)
+                lobbyComm:BroadcastData({ Type = 'SetColor', Color = newColor, Slot = slot })
+            end
+        end
+    end
+end
+
 function IsColorFree(colorIndex, currentSlotNumber)
+    if reservedColors[colorIndex] then
+        return false
+    end
     for id, player in gameInfo.PlayerOptions:pairs() do
         if player.PlayerColor == colorIndex then
             if currentSlotNumber then
@@ -2013,6 +2048,8 @@ function PrivateChat(targetID,text)
 end
 
 function UpdateAvailableSlots(numAvailStartSpots, scenario)
+    RefreshReservedColors(scenario)
+
     if numAvailStartSpots > LobbyComm.maxPlayerSlots then
         WARN("Lobby requests " .. numAvailStartSpots .. " but there are only " .. LobbyComm.maxPlayerSlots .. " available")
     end
@@ -2739,7 +2776,9 @@ function OnModsChanged(simMods, UIMods, ignoreRefresh)
 end
 
 function GetAvailableColor()
-    for i = 1, LobbyComm.maxPlayerSlots do
+    -- all palette entries, not just `maxPlayerSlots`: some may be reserved
+    -- for the mission's NPC armies
+    for i = 1, table.getn(gameColors.LobbyColorOrder) do
         if IsColorFree(gameColors.LobbyColorOrder[i]) then
             return gameColors.LobbyColorOrder[i]
         end
@@ -6817,7 +6856,7 @@ function Check_Availaible_Color(slot)
     -- generate a table of unused colors
     local unusedColours = {}
     for i, color in gameColors.PlayerColors do
-        if not table.find(UsedColours, i) then
+        if not table.find(UsedColours, i) and not reservedColors[i] then
             unusedColours[i] = color
         end
     end
